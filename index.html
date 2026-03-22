@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Battle City — Танчики</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+      overflow: hidden;
+    }
+    #game-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      width: 416px;
+      font-size: 11px;
+      color: #aaa;
+      font-weight: bold;
+    }
+    #hud .p1c { color: #fc0; }
+    #hud .p2c { color: #4f4; }
+    canvas {
+      border: 2px solid #444;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    /* ── Screens ── */
+    .screen {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 10;
+    }
+    .screen h1 {
+      font-size: 28px;
+      color: #e44;
+      text-shadow: 2px 2px #600;
+      letter-spacing: 2px;
+    }
+    .blink {
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Start screen ── */
+    #start-screen .controls {
+      display: flex;
+      gap: 40px;
+      font-size: 10px;
+      color: #888;
+      text-align: center;
+      line-height: 2;
+    }
+    #start-screen .controls div { min-width: 140px; }
+    #start-screen .controls h3 { font-size: 11px; margin-bottom: 4px; }
+    #start-screen .controls .p1 h3 { color: #fc0; }
+    #start-screen .controls .p2 h3 { color: #4f4; }
+    #start-screen .mode-select {
+      font-size: 14px;
+      color: #fff;
+      text-align: center;
+      line-height: 2.5;
+    }
+    #start-screen .mode-select span { color: #ff0; }
+    #start-screen .sub { font-size: 10px; color: #666; }
+
+    /* ── Level screen ── */
+    #level-screen {
+      display: none;
+      background: #111;
+      width: 100vw;
+      height: 100vh;
+    }
+    #level-screen h1 {
+      font-size: 32px;
+      color: #fff;
+      text-shadow: none;
+    }
+    #level-screen .stage-num {
+      font-size: 48px;
+      color: #fc0;
+    }
+
+    /* ── Game over / Win screen ── */
+    #end-screen {
+      display: none;
+    }
+    #end-screen h1 { font-size: 28px; }
+    #end-screen .stats {
+      font-size: 11px;
+      color: #aaa;
+      text-align: center;
+      line-height: 2;
+    }
+    #end-screen .mode-select {
+      font-size: 12px;
+      color: #fff;
+      text-align: center;
+      line-height: 2.5;
+    }
+    #end-screen .mode-select span { color: #ff0; }
+
+    /* ── Leaderboard ── */
+    #leaderboard-screen {
+      display: none;
+    }
+    #leaderboard-screen h1 {
+      color: #fc0;
+      font-size: 20px;
+      text-shadow: none;
+    }
+    #leaderboard-screen table {
+      border-collapse: collapse;
+      font-size: 11px;
+      min-width: 360px;
+    }
+    #leaderboard-screen th {
+      color: #fc0;
+      padding: 4px 12px;
+      border-bottom: 1px solid #444;
+      text-align: left;
+    }
+    #leaderboard-screen td {
+      padding: 3px 12px;
+      color: #ccc;
+      border-bottom: 1px solid #222;
+    }
+    #leaderboard-screen td:first-child { color: #888; }
+    #leaderboard-screen .new-entry td { color: #ff0 !important; }
+    #leaderboard-screen .actions {
+      font-size: 11px;
+      color: #888;
+      text-align: center;
+      line-height: 2.5;
+    }
+    #leaderboard-screen .actions span { color: #ff0; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Start Screen ── -->
+  <div id="start-screen" class="screen">
+    <h1>BATTLE CITY</h1>
+    <div class="controls">
+      <div class="p1">
+        <h3>ИГРОК 1</h3>
+        WASD — движение<br>
+        ПРОБЕЛ — стрелять
+      </div>
+      <div class="p2">
+        <h3>ИГРОК 2</h3>
+        Стрелки — движение<br>
+        Numpad 0 — стрелять
+      </div>
+    </div>
+    <div class="mode-select">
+      <span>[1]</span> — Один игрок<br>
+      <span>[2]</span> — Два игрока<br>
+      <span>[L]</span> — Таблица лидеров
+    </div>
+    <p class="sub blink">Выбери режим</p>
+  </div>
+
+  <!-- ── Level Transition ── -->
+  <div id="level-screen" class="screen">
+    <h1>УРОВЕНЬ</h1>
+    <div class="stage-num" id="stage-num">1</div>
+  </div>
+
+  <!-- ── End Screen ── -->
+  <div id="end-screen" class="screen">
+    <h1 id="end-title">GAME OVER</h1>
+    <div class="stats" id="end-stats"></div>
+    <div class="mode-select">
+      <span>[1]</span> — Один игрок<br>
+      <span>[2]</span> — Два игрока<br>
+      <span>[L]</span> — Таблица лидеров
+    </div>
+  </div>
+
+  <!-- ── Leaderboard ── -->
+  <div id="leaderboard-screen" class="screen">
+    <h1>ТАБЛИЦА ЛИДЕРОВ</h1>
+    <table>
+      <thead><tr><th>#</th><th>ИМЯ</th><th>СЧЁТ</th><th>УРОВЕНЬ</th><th>РЕЖИМ</th></tr></thead>
+      <tbody id="lb-body"></tbody>
+    </table>
+    <div class="actions">
+      <span>[ESC]</span> — Назад &nbsp; <span>[C]</span> — Очистить
+    </div>
+  </div>
+
+  <!-- ── Game ── -->
+  <div id="game-wrapper" style="display:none;">
+    <div id="hud">
+      <span class="p1c" id="hud-p1">P1 ♥<span id="lives1">3</span> ★<span id="stars1">0</span></span>
+      <span>УРОВЕНЬ <span id="hud-level">1</span></span>
+      <span>СЧЁТ: <span id="score">0</span></span>
+      <span>ВРАГИ: <span id="enemies-left">20</span></span>
+      <span class="p2c" id="hud-p2" style="display:none;">P2 ♥<span id="lives2">3</span> ★<span id="stars2">0</span></span>
+    </div>
+    <canvas id="game" width="416" height="416"></canvas>
+  </div>
+
+  <script src="levels.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
