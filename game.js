@@ -556,6 +556,7 @@ function updateShovel() {
 let levelTransitionTimer = 0;
 
 function showLevelScreen(lvl) {
+  currentLevel = lvl;
   hideAllScreens();
   document.getElementById('level-screen').style.display = 'flex';
   document.getElementById('stage-num').textContent = lvl;
@@ -673,10 +674,12 @@ document.addEventListener('keyup', e => { keys[e.code] = false; });
 function handleInput() {
   const p1 = players[0];
   if (p1 && p1.alive) {
-    if (keys['KeyW']) p1.move(DIR.UP);
-    else if (keys['KeyS']) p1.move(DIR.DOWN);
-    else if (keys['KeyA']) p1.move(DIR.LEFT);
-    else if (keys['KeyD']) p1.move(DIR.RIGHT);
+    // In 1-player mode, arrows also control P1
+    const useArrows = !twoPlayerMode;
+    if (keys['KeyW'] || (useArrows && keys['ArrowUp'])) p1.move(DIR.UP);
+    else if (keys['KeyS'] || (useArrows && keys['ArrowDown'])) p1.move(DIR.DOWN);
+    else if (keys['KeyA'] || (useArrows && keys['ArrowLeft'])) p1.move(DIR.LEFT);
+    else if (keys['KeyD'] || (useArrows && keys['ArrowRight'])) p1.move(DIR.RIGHT);
     if (keys['Space']) p1.shoot();
     p1.update();
   }
