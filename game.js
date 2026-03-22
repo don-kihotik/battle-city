@@ -41,7 +41,7 @@ const ENEMY_SPAWNS = [{ x: 1 * TILE, y: 1 * TILE }, { x: 12 * TILE, y: 1 * TILE 
 // ── Game state ──────────────────────────────────────────────
 let map, players, enemies, bullets, explosions, powerUps, notifications;
 let score, lives1, lives2, enemiesLeft, currentLevel;
-let gameState, twoPlayerMode, frameCount, spawnTimer, spawnIndex;
+let gameState, twoPlayerMode, frameCount, spawnTimer, spawnIndex, totalSpawned;
 let freezeTimer, shovelTimer;
 let keys = {};
 
@@ -534,8 +534,8 @@ function trySpawnEnemy() {
   enemy.shieldTimer = 30;
 
   // Every 4th enemy carries a power-up
-  const spawnedSoFar = (enemiesLeft - enemyQueue.length);
-  if (spawnedSoFar % 4 === 0) enemy.hasPowerUp = true;
+  totalSpawned++;
+  if (totalSpawned % 4 === 0) enemy.hasPowerUp = true;
 
   enemies.push(enemy);
   enemiesLeft = enemyQueue.length;
@@ -582,7 +582,7 @@ function startLevel(lvl) {
   enemies = []; bullets = []; explosions = []; powerUps = []; notifications = [];
   enemyQueue = buildEnemyQueue(levelData.enemies);
   enemiesLeft = enemyQueue.length;
-  frameCount = 0; spawnTimer = 0; spawnIndex = 0;
+  frameCount = 0; spawnTimer = 0; spawnIndex = 0; totalSpawned = 0;
   freezeTimer = 0; shovelTimer = 0;
 
   hideAllScreens();
