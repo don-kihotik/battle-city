@@ -360,7 +360,7 @@ class Bullet {
           if (e.hp <= 0) {
             if (e.hasPowerUp) spawnPowerUp();
             e.alive = false;
-            const pts = e.maxHp >= 4 ? 400 : e.maxHp >= 2 ? 200 : e.speed >= 2 ? 150 : 100;
+            const pts = e.maxHp >= 4 ? 500 : e.maxHp >= 2 ? 300 : e.baseSpeed >= 2 ? 200 : 100;
             score += pts;
             addExplosion(e.x + e.size / 2, e.y + e.size / 2, 16);
           } else {

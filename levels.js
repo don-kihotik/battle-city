@@ -590,8 +590,67 @@ function buildLevel(n) {
   }
 
   addBase(m);
+  // Override enemy composition with progressive difficulty curve
+  enemyDef = calculateEnemies(n);
   const total = enemyDef.normal + enemyDef.fast + enemyDef.armored + enemyDef.heavy;
   return { map: m, enemies: enemyDef, totalEnemies: total };
+}
+
+// ── Progressive enemy composition ───────────────────────────
+// Level 1-2:   Normal only (intro)
+// Level 3-4:   Fast introduced (1-2 per level)
+// Level 5-7:   Armored introduced (1-2 per level)
+// Level 8+:    Heavy introduced (1-2 at first)
+// Level 20+:   No more normals, mostly armored + heavy
+// Total enemies per level: 20 (constant, difficulty via composition + speed scaling)
+function calculateEnemies(level) {
+  const TOTAL = 20;
+  let normal, fast, armored, heavy;
+
+  if (level <= 2) {
+    // Only normals — learn the game
+    normal = TOTAL;
+    fast = 0; armored = 0; heavy = 0;
+  } else if (level <= 4) {
+    // Fast tanks introduced
+    fast = Math.min(level - 1, 4);       // 2-3
+    normal = TOTAL - fast;
+    armored = 0; heavy = 0;
+  } else if (level <= 7) {
+    // Armored introduced
+    fast = 3 + Math.floor((level - 5) * 1.5);   // 3-6
+    armored = level - 4;                          // 1-3
+    normal = TOTAL - fast - armored;
+    heavy = 0;
+  } else {
+    // Heavy introduced at level 8, normals phase out by level 20
+    heavy = Math.min(1 + Math.floor((level - 8) * 0.75), 10); // 1→10 over levels 8-20
+    armored = Math.min(2 + Math.floor((level - 5) * 0.6), 8); // 2→8
+    fast = Math.min(3 + Math.floor((level - 5) * 0.4), 8);    // 3→8
+
+    // Normal decreases linearly to 0 at level 20
+    if (level >= 20) {
+      normal = 0;
+    } else {
+      normal = Math.max(0, TOTAL - fast - armored - heavy);
+    }
+
+    // Ensure total = 20: redistribute overflow to heavy
+    const sum = normal + fast + armored + heavy;
+    if (sum > TOTAL) {
+      // Trim from fast first, then armored
+      const excess = sum - TOTAL;
+      fast = Math.max(0, fast - excess);
+      const sum2 = normal + fast + armored + heavy;
+      if (sum2 > TOTAL) armored = Math.max(0, armored - (sum2 - TOTAL));
+    } else if (sum < TOTAL) {
+      // Fill remaining with heavy (post level 20) or fast
+      if (level >= 20) heavy += (TOTAL - sum);
+      else fast += (TOTAL - sum);
+    }
+  }
+
+  return { normal, fast, armored, heavy };
 }
 
 // Procedural level generator for levels beyond 40
@@ -624,14 +683,12 @@ function buildProceduralLevel(n) {
 
   addBase(m);
 
-  const heavyCount = Math.min(16, 4 + Math.floor(n / 3));
-  const armoredCount = Math.min(10, 2 + Math.floor(n / 5));
-  const fastCount = Math.max(0, 20 - heavyCount - armoredCount);
-  const total = fastCount + armoredCount + heavyCount;
+  const enemyDef = calculateEnemies(n);
+  const total = enemyDef.normal + enemyDef.fast + enemyDef.armored + enemyDef.heavy;
 
   return {
     map: m,
-    enemies: { normal: 0, fast: fastCount, armored: armoredCount, heavy: heavyCount },
+    enemies: enemyDef,
     totalEnemies: total
   };
 }
