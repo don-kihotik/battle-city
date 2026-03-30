@@ -1,33 +1,20 @@
-import { put, list, getStore } from '@vercel/blob';
+import { Redis } from '@upstash/redis';
 
-const BLOB_NAME = 'leaderboard.json';
+const redis = Redis.fromEnv();
+const LB_KEY = 'battlecity:leaderboard';
 const MAX_ENTRIES = 50;
 
 async function getLeaderboard() {
   try {
-    const { blobs } = await list({ prefix: BLOB_NAME });
-    if (blobs.length === 0) return [];
-    const response = await fetch(blobs[0].url);
-    return await response.json();
+    const data = await redis.get(LB_KEY);
+    return data || [];
   } catch {
     return [];
   }
 }
 
 async function saveLeaderboard(data) {
-  // Delete old blobs first
-  try {
-    const { blobs } = await list({ prefix: BLOB_NAME });
-    const store = getStore({ throwOnMissingStore: false });
-    for (const blob of blobs) {
-      await store?.delete(blob.url);
-    }
-  } catch { /* ignore */ }
-
-  await put(BLOB_NAME, JSON.stringify(data), {
-    access: 'public',
-    addRandomSuffix: false,
-  });
+  await redis.set(LB_KEY, data);
 }
 
 export default async function handler(req, res) {
@@ -65,7 +52,7 @@ export default async function handler(req, res) {
 
     await saveLeaderboard(trimmed);
 
-    const rank = trimmed.findIndex(e => e === entry) + 1;
+    const rank = trimmed.findIndex(e => e.date === entry.date && e.name === entry.name) + 1;
     return res.status(200).json({ rank, leaderboard: trimmed });
   }
 

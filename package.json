@@ -20,6 +20,6 @@
   },
   "homepage": "https://github.com/don-kihotik/battle-city#readme",
   "dependencies": {
-    "@vercel/blob": "^2.3.2"
+    "@upstash/redis": "^1.37.0"
   }
 }
