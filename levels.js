@@ -40,6 +40,22 @@ function addBase(m) {
   m[25][12] = 5; m[25][13] = 5;
 }
 
+// Helper: clear tiles around enemy spawn points so tanks don't get stuck
+// Enemy spawns are at tile (1,1), (12,1), (24,1) — each tank is 2 tiles wide
+// We clear a 2-wide column 4 rows deep below each spawn
+function clearSpawns(m) {
+  const spawnCols = [1, 12, 24]; // x / TILE for each enemy spawn
+  for (const c of spawnCols) {
+    for (let r = 0; r < 5; r++) {       // rows 0-4: spawn + room to move
+      for (let dc = 0; dc < 2; dc++) {  // tank is 2 tiles wide
+        if (r < 26 && c + dc < 26) {
+          m[r][c + dc] = 0;
+        }
+      }
+    }
+  }
+}
+
 // ── Level definitions ───────────────────────────────────────
 
 function buildLevel(n) {
@@ -590,6 +606,7 @@ function buildLevel(n) {
   }
 
   addBase(m);
+  clearSpawns(m);
   // Override enemy composition with progressive difficulty curve
   enemyDef = calculateEnemies(n);
   const total = enemyDef.normal + enemyDef.fast + enemyDef.armored + enemyDef.heavy;
@@ -682,6 +699,7 @@ function buildProceduralLevel(n) {
   stamp(m, 1, 20, 8, 2, 4); stamp(m, 1, 20, 14, 2, 4);
 
   addBase(m);
+  clearSpawns(m);
 
   const enemyDef = calculateEnemies(n);
   const total = enemyDef.normal + enemyDef.fast + enemyDef.armored + enemyDef.heavy;
