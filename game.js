@@ -46,49 +46,117 @@ let freezeTimer, shovelTimer;
 let keys = {};
 
 const MAX_ENEMIES = 4;
-const SPAWN_INTERVAL = 180;
+const BASE_SPAWN_INTERVAL = 180;
 const FREEZE_DUR = 300;
 const SHIELD_DUR = 300;
 const SHOVEL_DUR = 600;
 
-// ── Leaderboard ─────────────────────────────────────────────
-const LB_KEY = 'battlecity_leaderboard';
-let lastEntryIndex = -1;
+// ── Fixed timestep (frame-rate independent) ────────────────
+const FIXED_DT = 1000 / 60; // 60 logical fps
+let lastTimestamp = 0;
+let accumulator = 0;
 
-function loadLeaderboard() {
+// ── Level speed scaling ────────────────────────────────────
+// Doubles over 20 levels: lvl1=1.0x, lvl10=1.47x, lvl20=2.0x, lvl40=3.05x
+function getLevelSpeed() {
+  return Math.pow(2, (currentLevel - 1) / 19);
+}
+let SPAWN_INTERVAL = BASE_SPAWN_INTERVAL;
+
+// ── Leaderboard (cloud + localStorage fallback) ────────────
+const LB_KEY = 'battlecity_leaderboard';
+const API_URL = '/api/scores';
+let lastEntryIndex = -1;
+let cachedLeaderboard = [];
+
+function loadLeaderboardLocal() {
   try { return JSON.parse(localStorage.getItem(LB_KEY)) || []; }
   catch { return []; }
 }
-function saveLeaderboard(lb) {
+function saveLeaderboardLocal(lb) {
   localStorage.setItem(LB_KEY, JSON.stringify(lb));
 }
-function addToLeaderboard(name, score, level, mode) {
-  const lb = loadLeaderboard();
-  const entry = { name, score, level, mode, date: Date.now() };
-  lb.push(entry);
-  lb.sort((a, b) => b.score - a.score);
-  const trimmed = lb.slice(0, 10);
-  saveLeaderboard(trimmed);
-  lastEntryIndex = trimmed.indexOf(entry);
-  return trimmed;
+
+async function fetchLeaderboardCloud() {
+  try {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    // Merge with local and keep best
+    const local = loadLeaderboardLocal();
+    const merged = [...data];
+    for (const l of local) {
+      if (!merged.some(m => m.name === l.name && m.score === l.score && m.date === l.date)) {
+        merged.push(l);
+      }
+    }
+    merged.sort((a, b) => b.score - a.score);
+    const trimmed = merged.slice(0, 50);
+    saveLeaderboardLocal(trimmed);
+    return trimmed;
+  } catch {
+    return loadLeaderboardLocal();
+  }
 }
-function showLeaderboard() {
+
+async function addToLeaderboard(name, sc, level, mode) {
+  const entry = { name, score: sc, level, mode, date: Date.now() };
+
+  // Save locally immediately
+  const local = loadLeaderboardLocal();
+  local.push(entry);
+  local.sort((a, b) => b.score - a.score);
+  const trimmedLocal = local.slice(0, 50);
+  saveLeaderboardLocal(trimmedLocal);
+  lastEntryIndex = trimmedLocal.findIndex(e => e.date === entry.date && e.name === entry.name);
+  cachedLeaderboard = trimmedLocal;
+
+  // Try cloud save in background
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    });
+    if (res.ok) {
+      const { rank, leaderboard } = await res.json();
+      lastEntryIndex = rank - 1;
+      cachedLeaderboard = leaderboard;
+      saveLeaderboardLocal(leaderboard);
+    }
+  } catch { /* local save is enough */ }
+
+  return cachedLeaderboard;
+}
+
+async function showLeaderboard() {
   hideAllScreens();
   const screen = document.getElementById('leaderboard-screen');
   screen.style.display = 'flex';
   const tbody = document.getElementById('lb-body');
-  const lb = loadLeaderboard();
+  gameState = 'leaderboard';
+
+  // Show local data first
+  renderLeaderboardTable(loadLeaderboardLocal(), tbody);
+
+  // Then fetch cloud data
+  const lb = await fetchLeaderboardCloud();
+  cachedLeaderboard = lb;
+  renderLeaderboardTable(lb, tbody);
+  lastEntryIndex = -1;
+}
+
+function renderLeaderboardTable(lb, tbody) {
   if (lb.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;padding:16px;">Пока пусто. Играй!</td></tr>';
   } else {
-    tbody.innerHTML = lb.map((e, i) => {
+    tbody.innerHTML = lb.slice(0, 20).map((e, i) => {
       const cls = i === lastEntryIndex ? 'class="new-entry"' : '';
       return `<tr ${cls}><td>${i + 1}</td><td>${e.name}</td><td>${e.score}</td><td>${e.level}</td><td>${e.mode}</td></tr>`;
     }).join('');
   }
-  gameState = 'leaderboard';
-  lastEntryIndex = -1;
 }
+
 function clearLeaderboard() {
   localStorage.removeItem(LB_KEY);
   showLeaderboard();
@@ -139,7 +207,7 @@ function drawTankPixels(x, y, dir, c1, c2, size) {
 class Tank {
   constructor(x, y, dir, speed, c1, c2, playerIndex, hp) {
     this.x = x; this.y = y; this.dir = dir;
-    this.speed = speed; this.c1 = c1; this.c2 = c2;
+    this.baseSpeed = speed; this.c1 = c1; this.c2 = c2;
     this.playerIndex = playerIndex; // -1=enemy, 0=P1, 1=P2
     this.isPlayer = playerIndex >= 0;
     this.size = TILE * 2;
@@ -153,8 +221,18 @@ class Tank {
     this.hasPowerUp = false;
   }
 
-  get bulletSpeed() { return this.isPlayer ? 4 + this.starLevel : 3; }
-  get shootCD() { return this.isPlayer ? Math.max(8, 15 - this.starLevel * 4) : 40; }
+  get speed() {
+    const lvlScale = this.isPlayer ? Math.pow(getLevelSpeed(), 0.5) : getLevelSpeed();
+    return this.baseSpeed * lvlScale;
+  }
+  get bulletSpeed() {
+    const base = this.isPlayer ? 4 + this.starLevel : 3;
+    return base * Math.pow(getLevelSpeed(), 0.5);
+  }
+  get shootCD() {
+    const base = this.isPlayer ? Math.max(8, 15 - this.starLevel * 4) : 40;
+    return Math.round(base / Math.pow(getLevelSpeed(), 0.4));
+  }
 
   draw() {
     if (!this.alive) return;
@@ -232,16 +310,18 @@ class Tank {
   aiUpdate() {
     if (!this.alive || freezeTimer > 0) return;
     this.aiChangeDir--;
+    const spd = getLevelSpeed();
     if (this.aiChangeDir <= 0) {
       this.dir = Math.random() < 0.4 ? DIR.DOWN : DIR_LIST[Math.floor(Math.random() * 4)];
-      this.aiChangeDir = 60 + Math.floor(Math.random() * 120);
+      this.aiChangeDir = Math.round((60 + Math.floor(Math.random() * 120)) / Math.pow(spd, 0.3));
     }
     this.move(this.dir);
     if (!this.canMoveTo(this.x + this.dir.dx * this.speed, this.y + this.dir.dy * this.speed)) {
       this.dir = DIR_LIST[Math.floor(Math.random() * 4)];
-      this.aiChangeDir = 30 + Math.floor(Math.random() * 60);
+      this.aiChangeDir = Math.round((30 + Math.floor(Math.random() * 60)) / Math.pow(spd, 0.3));
     }
-    if (Math.random() < 0.025) this.shoot();
+    // Enemies shoot more aggressively at higher levels
+    if (Math.random() < 0.025 * Math.pow(spd, 0.4)) this.shoot();
   }
 }
 
@@ -459,6 +539,7 @@ function updateHUD() {
   document.getElementById('stars1').textContent = players[0] ? players[0].starLevel : 0;
   document.getElementById('score').textContent = score;
   document.getElementById('hud-level').textContent = currentLevel;
+  document.getElementById('hud-speed').textContent = getLevelSpeed().toFixed(1);
   const alive = enemies.filter(e => e.alive).length;
   document.getElementById('enemies-left').textContent = enemiesLeft + alive;
   if (twoPlayerMode) {
@@ -585,6 +666,7 @@ function startLevel(lvl) {
   enemiesLeft = enemyQueue.length;
   frameCount = 0; spawnTimer = 0; spawnIndex = 0; totalSpawned = 0;
   freezeTimer = 0; shovelTimer = 0;
+  SPAWN_INTERVAL = Math.round(BASE_SPAWN_INTERVAL / Math.pow(getLevelSpeed(), 0.6));
 
   hideAllScreens();
   document.getElementById('game-wrapper').style.display = 'flex';
@@ -696,10 +778,8 @@ function handleInput() {
   }
 }
 
-// ── Main loop ───────────────────────────────────────────────
-function gameLoop() {
-  requestAnimationFrame(gameLoop);
-
+// ── Fixed-step update (runs at exactly 60 logical fps) ─────
+function fixedUpdate() {
   // Level transition countdown
   if (gameState === 'level-transition') {
     levelTransitionTimer--;
@@ -736,8 +816,10 @@ function gameLoop() {
   if (enemyQueue.length === 0 && enemies.length === 0 && gameState === 'playing') {
     endGame(true);
   }
+}
 
-  // ── Render ──
+// ── Render (visual only, runs every animation frame) ───────
+function render() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   drawMap();
@@ -756,9 +838,41 @@ function gameLoop() {
   drawTrees(); // trees on top
   drawExplosions();
   drawNotifications();
+
+  // Show speed indicator
+  ctx.fillStyle = '#555';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${getLevelSpeed().toFixed(1)}x`, canvas.width - 4, canvas.height - 4);
+}
+
+// ── Main loop (frame-rate independent) ─────────────────────
+function gameLoop(timestamp) {
+  requestAnimationFrame(gameLoop);
+
+  if (lastTimestamp === 0) { lastTimestamp = timestamp; return; }
+
+  let dt = timestamp - lastTimestamp;
+  lastTimestamp = timestamp;
+
+  // Clamp dt to avoid spiral of death (e.g. tab was inactive)
+  if (dt > 200) dt = 200;
+
+  accumulator += dt;
+
+  // Run fixed-step updates at exactly 60 logical fps
+  // Max 4 updates per frame to prevent freeze on very slow machines
+  let steps = 0;
+  while (accumulator >= FIXED_DT && steps < 4) {
+    fixedUpdate();
+    accumulator -= FIXED_DT;
+    steps++;
+  }
+
+  render();
 }
 
 // ── Start ───────────────────────────────────────────────────
 gameState = 'start';
 currentLevel = 1;
-gameLoop();
+requestAnimationFrame(gameLoop);
